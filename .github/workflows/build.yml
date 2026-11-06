@@ -48,19 +48,77 @@ jobs:
 
       - name: Download Minecraft, Fabric Loader, Mixin and Flashback
         run: |
-          set -euo pipefail
+          set -eo pipefail
           mkdir -p deps/libs
+          MANIFEST_URL="https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+          FABRIC="https://maven.fabricmc.net/net/fabricmc"
+          FLASHBACK_URL="https://cdn.modrinth.com/data/4das1Fjq/versions/cV1pa0YV/Flashback-0.43.6-for-MC26.3.jar"
+          FLASHBACK_SHA1="4fd7d2d677332f58b00107b27615379eadc6cfcb"
 
-          # Minecraft client jar + its libraries, straight from Mojang
-          VURL=$(curl -fsSL https://piston-meta.mojang.com/mc/game/version_manifest_v2.json \
-            | jq -r --arg v "$MC_VERSION" '.versions[] | select(.id == $v) | .url')
+          echo "Minecraft $MC_VERSION: looking up the version"
+          curl -fsSL "$MANIFEST_URL" -o deps/manifest.json
+          VURL=$(jq -r --arg v "$MC_VERSION" '.versions[] | select(.id == $v) | .url' deps/manifest.json)
           if [ -z "$VURL" ]; then echo "::error::Minecraft $MC_VERSION not found in Mojang's version list"; exit 1; fi
           curl -fsSL "$VURL" -o deps/version.json
-          curl -fsSL "$(jq -r '.downloads.client.url' deps/version.json)" -o deps/minecraft-client.jar
+
+          echo "Downloading the Minecraft client"
+          CLIENT_URL=$(jq -r '.downloads.client.url' deps/version.json)
+          curl -fsSL "$CLIENT_URL" -o deps/minecraft-client.jar
+
+          jq -r '.libraries[].downloads.artifact.url // empty' deps/version.json | sort -u > deps/libraries.txt
+          COUNT=$(wc -l < deps/libraries.txt)
+          echo "Downloading $COUNT Minecraft libraries"
+          if [ "$COUNT" -eq 0 ]; then echo "::error::No libraries listed for Minecraft $MC_VERSION"; exit 1; fi
           i=0
-          jq -r '.libraries[].downloads.artifact.url // empty' deps/version.json | sort -u | while read -r url; do
+          while read -r url; do
             i=$((i + 1))
-            echo "url = \"$url\""
-            echo "output = \"deps/libs/$i.jar\""
-          done > deps/curl.cfg
-          curl -fsSL
+            curl -fsSL "$url" -o "deps/libs/$i.jar" || { echo "::error::Couldn't download $url"; exit 1; }
+          done < deps/libraries.txt
+
+          echo "Downloading Fabric Loader $LOADER_VERSION"
+          curl -fsSL "$FABRIC/fabric-loader/$LOADER_VERSION/fabric-loader-$LOADER_VERSION.jar" -o deps/fabric-loader.jar
+
+          MIXIN=$(curl -fsSL "$FABRIC/sponge-mixin/maven-metadata.xml" | grep -oPm1 '(?<=<release>)[^<]+')
+          echo "Downloading Mixin $MIXIN"
+          curl -fsSL "$FABRIC/sponge-mixin/$MIXIN/sponge-mixin-$MIXIN.jar" -o deps/sponge-mixin.jar
+
+          # Flashback: only compiled against, never committed or bundled. Checked to be exactly 0.43.6 for MC 26.3.
+          echo "Downloading Flashback 0.43.6"
+          curl -fsSL "$FLASHBACK_URL" -o deps/Flashback-0.43.6-for-MC26.3.jar
+          echo "$FLASHBACK_SHA1  deps/Flashback-0.43.6-for-MC26.3.jar" | sha1sum -c -
+          echo "All downloads done"
+
+      - name: Compile and package
+        run: |
+          set -uo pipefail
+          CP=$(find deps -name '*.jar' | tr '\n' ':')
+          find "$PROJECT_DIR/src/main/java" -name '*.java' > sources.txt
+          echo "Compiling $(wc -l < sources.txt) source files"
+          mkdir -p out dist
+          if ! javac --release "$JAVA_RELEASE" -proc:none -encoding UTF-8 -nowarn -d out -cp "$CP" @sources.txt > javac.log 2>&1; then
+            cat javac.log
+            {
+              echo '### Compile errors'
+              echo '```'
+              head -n 80 javac.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Compiling failed. The errors are on the Summary page under 'Compile errors'."
+            exit 1
+          fi
+          cat javac.log
+
+          cp -r "$PROJECT_DIR/src/main/resources/." out/
+          sed -i "s/\${version}/$MOD_VERSION/" out/fabric.mod.json
+          JAR="dist/flashback-skin-timeline-$MOD_VERSION.jar"
+          jar --create --file "$JAR" -C out .
+          echo "Built $JAR:"
+          jar --list --file "$JAR"
+          echo "Built **$(basename "$JAR")**. Download it under Artifacts below." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the add-on jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: flashback-skin-timeline
+          path: dist/*.jar
+          if-no-files-found: error
