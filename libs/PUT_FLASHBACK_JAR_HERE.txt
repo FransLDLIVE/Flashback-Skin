@@ -1,0 +1,2 @@
+Copy your Flashback jar (for example Flashback-0.43.6-for-MC26.3.jar) into this folder before building.
+It is only used to compile the add-on; it is not packed into the add-on jar.

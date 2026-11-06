@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "package": "com.fransld.skintimeline.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "EditorStateMixin",
+    "KeybindMixin",
+    "MainMenuBarMixin",
+    "MinecraftMixin",
+    "SelectedEntityPopupMixin",
+    "WindowTypeMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "flashback_skin_timeline",
+  "version": "${version}",
+  "name": "Flashback Skin Timeline & Simple Mode",
+  "description": "Add-on for Flashback: switch actors' skins mid-scene (expressions) on a timeline, plus a Simple Mode panel. Works with Flashback Actors.",
+  "authors": [
+    "FransLD"
+  ],
+  "license": "All-Rights-Reserved",
+  "environment": "client",
+  "mixins": [
+    "flashback_skin_timeline.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.15.10",
+    "minecraft": ">26.2 <26.4",
+    "java": ">=21",
+    "flashback": ">=0.43.0"
+  },
+  "suggests": {
+    "fbactors": "*"
+  }
+}

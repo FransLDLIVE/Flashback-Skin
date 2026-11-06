@@ -1,0 +1,46 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+version = "${project.mod_version}+mc${project.minecraft_version}"
+group = project.maven_group
+
+base {
+	archivesName = project.archives_base_name
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+	// Flashback is only needed to compile against. Put the Flashback jar in the libs/ folder.
+	// It is NOT bundled into this add-on; players install Flashback separately.
+	compileOnly fileTree(dir: 'libs', include: ['Flashback*.jar', 'flashback*.jar'])
+}
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+	it.options.encoding = 'UTF-8'
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+tasks.named('compileJava') {
+	doFirst {
+		if (fileTree(dir: 'libs', include: ['Flashback*.jar', 'flashback*.jar']).isEmpty()) {
+			throw new GradleException("Put your Flashback jar (e.g. Flashback-0.43.6-for-MC26.3.jar) in the libs/ folder first.")
+		}
+	}
+}
