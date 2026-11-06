@@ -1,0 +1,66 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+# Builds the add-on with plain javac (no Gradle / Fabric Loom needed).
+# Minecraft 26.x is unobfuscated, so compiling straight against Mojang's client jar
+# gives exactly the names the game uses at runtime.
+
+env:
+  MC_VERSION: '26.3'
+  LOADER_VERSION: '0.20.1'
+  MOD_VERSION: '1.1.0+mc26.3'
+  JAVA_RELEASE: '25'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Finds the project wherever it is in the repo: files at the top level, inside a
+      # flashback-skin-timeline folder, or still packed in flashback-skin-timeline.zip.
+      - name: Find the project
+        run: |
+          ZIP=$(find . -maxdepth 3 -iname '*.zip' -not -path './.git/*' | head -n 1)
+          if [ -n "$ZIP" ]; then
+            echo "Unpacking $ZIP"
+            unzip -q -o "$ZIP" -d unpacked
+          fi
+          SRC=$(find . -type d -path '*/src/main/java' -not -path './.git/*' | awk '{ print length, $0 }' | sort -n | head -n 1 | cut -d' ' -f2-)
+          if [ -z "$SRC" ]; then
+            echo "::error::Couldn't find the src/main/java folder. Upload the project files (or flashback-skin-timeline.zip) to the repository."
+            echo "Files currently in the repository:"
+            find . -not -path './.git*' | head -n 100
+            exit 1
+          fi
+          DIR=${SRC%/src/main/java}
+          echo "Project found in: $DIR"
+          echo "PROJECT_DIR=$DIR" >> "$GITHUB_ENV"
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Download Minecraft, Fabric Loader, Mixin and Flashback
+        run: |
+          set -euo pipefail
+          mkdir -p deps/libs
+
+          # Minecraft client jar + its libraries, straight from Mojang
+          VURL=$(curl -fsSL https://piston-meta.mojang.com/mc/game/version_manifest_v2.json \
+            | jq -r --arg v "$MC_VERSION" '.versions[] | select(.id == $v) | .url')
+          if [ -z "$VURL" ]; then echo "::error::Minecraft $MC_VERSION not found in Mojang's version list"; exit 1; fi
+          curl -fsSL "$VURL" -o deps/version.json
+          curl -fsSL "$(jq -r '.downloads.client.url' deps/version.json)" -o deps/minecraft-client.jar
+          i=0
+          jq -r '.libraries[].downloads.artifact.url // empty' deps/version.json | sort -u | while read -r url; do
+            i=$((i + 1))
+            echo "url = \"$url\""
+            echo "output = \"deps/libs/$i.jar\""
+          done > deps/curl.cfg
+          curl -fsSL
